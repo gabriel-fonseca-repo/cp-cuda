@@ -1,11 +1,10 @@
-
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
 
-#define BLOCK_SIZE 16
-#define ARRAY_SIZE 64
+#define BLOCK_SIZE 64
+#define ARRAY_SIZE 128000
 
 typedef struct timeval tval;
 
@@ -36,11 +35,7 @@ __global__ void gpu_saxpy(int n, float a, float *x, float *y) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
     if (tid < n) {
-        printf("Calculando %.2f * %.2f + %.2f na thread de ID %d.\n", a, x[tid],
-               y[tid], threadIdx.x);
         y[tid] = a * x[tid] + y[tid];
-        printf(" Resultado: do cálculo na thread de ID %d = %.2f.\n",
-               threadIdx.x, y[tid]);
     }
 }
 
@@ -83,29 +78,44 @@ int main(int argc, char **argv) {
     cudaMemcpy(d_x, x, sizeof(float) * ARRAY_SIZE, cudaMemcpyHostToDevice);
     cudaMemcpy(d_y, y, sizeof(float) * ARRAY_SIZE, cudaMemcpyHostToDevice);
 
+    // Variáveis para métricas de performance/tempo de execução da CPU.
+    tval t_start, t_end;
+    gettimeofday(&t_start, NULL);
     // Execução na CPU para fins de comparação
     cpu_saxpy(ARRAY_SIZE, a, x, y);
+    gettimeofday(&t_end, NULL);
+    double elapsed_cpu = get_elapsed(t_start, t_end);
     error = generate_hash(ARRAY_SIZE, y);
+
     printf("Execução na CPU terminada. Taxa de erro = %.6f.\n", error);
+    printf("Tempo de execução na CPU: %.6f ms.\n", elapsed_cpu);
+
+    // Variáveis para métricas de performance/tempo de execução da GPU.
+    tval t_start_gpu, t_end_gpu;
+    gettimeofday(&t_start_gpu, NULL);
 
     // TO-DO #2.4
     // Execute o kernel CUDA com os parâmetros correspondentes.
     gpu_saxpy<<<grid, block>>>(ARRAY_SIZE, a, d_x, d_y);
-
     cudaDeviceSynchronize();
+
+    gettimeofday(&t_end_gpu, NULL);
+    double elapsed_gpu = get_elapsed(t_start_gpu, t_end_gpu);
 
     // TO-DO #2.5.1
     // Transferindo os resultados da GPU para o host.
     cudaMemcpy(y, d_y, sizeof(float) * ARRAY_SIZE, cudaMemcpyDeviceToHost);
 
     error = fabsf(error - generate_hash(ARRAY_SIZE, y));
+
     printf("Execução na GPU terminada. Taxa de erro = %.6f.\n", error);
+    printf("Tempo de execução na GPU: %.6f ms.\n", elapsed_gpu);
 
     if (error > 0.0001f) {
         fprintf(stderr, "Erro: a solução está incorreta!\n");
     }
 
-    // Gerenciamento de memória
+    // Gerenciamento de memória.
     free(x);
     free(y);
     cudaFree(d_x);
